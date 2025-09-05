@@ -1,0 +1,209 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+
+type Property = { id: string; user_id: string; address: string; created_at: string; };
+type Bill = {
+  id: string; property_id: string; bill_type: 'council'|'water'|'strata'|'electricity'|'gas'|'other';
+  amount: number; due_date: string; status: 'unpaid'|'paid'; created_at: string;
+  property?: { address?: string };
+};
+
+export default function Dashboard() {
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loadingProps, setLoadingProps] = useState(true);
+
+  const [overdue, setOverdue] = useState<Bill[]>([]);
+  const [dueSoon, setDueSoon] = useState<Bill[]>([]);
+  const [loadingBills, setLoadingBills] = useState(true);
+
+  const [newAddress, setNewAddress] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const twoWeeksFromNowISO = useMemo(() => { const d = new Date(); d.setDate(d.getDate()+14); return d.toISOString().slice(0,10); }, []);
+
+  const currency = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sum = (rows: Bill[]) => rows.reduce((a, b) => a + Number(b.amount || 0), 0);
+
+  // ------- Properties
+  const fetchProperties = async () => {
+    setErrorMsg(null); setLoadingProps(true);
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) { setErrorMsg(error.message); setLoadingProps(false); return; }
+    if (!user) { window.location.href = '/sign-in'; return; }
+
+    const { data, error: qErr } = await supabase
+      .from('properties')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (qErr) setErrorMsg(qErr.message);
+    setProperties((data as Property[]) || []);
+    setLoadingProps(false);
+  };
+
+  // ------- Bills (join with fallback)
+  const fetchBillsBuckets = async () => {
+    setErrorMsg(null); setLoadingBills(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = '/sign-in'; return; }
+
+    const joined = await supabase
+      .from('bills')
+      .select('*, property:properties(address)')
+      .eq('status', 'unpaid')
+      .order('due_date', { ascending: true });
+
+    let all: Bill[] = [];
+    if (!joined.error && joined.data) {
+      all = (joined.data as Bill[]) || [];
+    } else {
+      const { data: billsOnly, error: bErr } = await supabase
+        .from('bills').select('*').eq('status','unpaid').order('due_date',{ascending:true});
+      if (bErr) { setErrorMsg(bErr.message); setLoadingBills(false); return; }
+      const list = (billsOnly as Bill[]) || [];
+      const ids = Array.from(new Set(list.map(b => b.property_id)));
+      const { data: props } = await supabase.from('properties').select('id,address').in('id', ids);
+      const map = new Map((props || []).map((p:{id:string,address:string}) => [p.id, p.address]));
+      all = list.map(b => ({...b, property:{address: map.get(b.property_id) || ''}}));
+    }
+
+    const today = todayISO, soon = twoWeeksFromNowISO;
+    setOverdue(all.filter(b => b.due_date < today));
+    setDueSoon(all.filter(b => b.due_date >= today && b.due_date <= soon));
+    setLoadingBills(false);
+  };
+
+  // ------- Mutations
+  const addProperty = async (e: React.FormEvent) => {
+    e.preventDefault(); setErrorMsg(null);
+    const addr = newAddress.trim(); if (!addr) return;
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) { setErrorMsg(error.message); return; }
+    if (!user) { window.location.href = '/sign-in'; return; }
+
+    const { data, error: insErr } = await supabase
+      .from('properties').insert([{ user_id: user.id, address: addr }])
+      .select().single();
+    if (insErr) { setErrorMsg(insErr.message); return; }
+    setProperties(p => [data as Property, ...p]); setNewAddress('');
+  };
+
+  const deleteProperty = async (id: string) => {
+    setErrorMsg(null);
+    const { error } = await supabase.from('properties').delete().eq('id', id);
+    if (error) { setErrorMsg(error.message); return; }
+    setProperties(p => p.filter(x => x.id !== id));
+    await fetchBillsBuckets(); // cascade removed bills
+  };
+
+  const payBill = async (bill: Bill) => {
+    setErrorMsg(null);
+    const { error: payErr } = await supabase.from('payments').insert([{ bill_id: bill.id, amount: bill.amount, method: 'demo' }]);
+    if (payErr) { setErrorMsg(payErr.message); return; }
+    const { error: updErr } = await supabase.from('bills').update({ status: 'paid' }).eq('id', bill.id);
+    if (updErr) { setErrorMsg(updErr.message); return; }
+    await fetchBillsBuckets();
+  };
+
+  // ------- Init
+  useEffect(() => { (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = '/sign-in'; return; }
+    await Promise.all([fetchProperties(), fetchBillsBuckets()]);
+  })(); }, []);
+
+  // ------- UI
+  return (
+    <main className="mx-auto max-w-3xl p-6 space-y-8">
+      <header className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold">My Properties</h1>
+          <p className="text-sm text-gray-500">Track upcoming bills, add properties, and pay (demo).</p>
+        </div>
+        <Link href="/discover" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">Find Properties</Link>
+      </header>
+
+      {errorMsg && <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</div>}
+
+      {/* Overdue */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Overdue</h2>
+          <div className="text-sm text-red-700">Total: ${currency(sum(overdue))}</div>
+        </div>
+        {loadingBills ? <div className="text-sm text-gray-600">Loading overdue bills…</div> :
+          overdue.length === 0 ? <div className="text-sm text-gray-600">No overdue bills 🎉</div> :
+          <ul className="space-y-2">{overdue.map(b => (
+            <li key={b.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div className="flex flex-col">
+                <span className="font-medium capitalize">{b.bill_type} • {b.property?.address || '—'}</span>
+                <span className="text-sm text-red-700">Overdue • Due {new Date(b.due_date).toLocaleDateString()} • ${currency(Number(b.amount))}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link href={`/properties/${b.property_id}`} className="text-sm rounded-md border px-3 py-1 hover:bg-gray-50">View</Link>
+                <button onClick={() => payBill(b)} className="text-sm rounded-md border px-3 py-1 hover:bg-gray-50">Pay now (demo)</button>
+              </div>
+            </li>
+          ))}</ul>}
+      </section>
+
+      {/* Due soon */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Due in 14 days</h2>
+          <div className="text-sm text-amber-700">Total: ${currency(sum(dueSoon))}</div>
+        </div>
+        {loadingBills ? <div className="text-sm text-gray-600">Loading upcoming bills…</div> :
+          dueSoon.length === 0 ? <div className="text-sm text-gray-600">Nothing due in the next two weeks.</div> :
+          <ul className="space-y-2">{dueSoon.map(b => (
+            <li key={b.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div className="flex flex-col">
+                <span className="font-medium capitalize">{b.bill_type} • {b.property?.address || '—'}</span>
+                <span className="text-sm text-gray-600">Due {new Date(b.due_date).toLocaleDateString()} • ${currency(Number(b.amount))}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link href={`/properties/${b.property_id}`} className="text-sm rounded-md border px-3 py-1 hover:bg-gray-50">View</Link>
+                <button onClick={() => payBill(b)} className="text-sm rounded-md border px-3 py-1 hover:bg-gray-50">Pay now (demo)</button>
+              </div>
+            </li>
+          ))}</ul>}
+      </section>
+
+      {/* Add property */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-medium">Add a property</h2>
+        <form onSubmit={addProperty} className="flex gap-2">
+          <input type="text" value={newAddress} onChange={(e)=>setNewAddress(e.target.value)} placeholder="e.g. 123 Example St, Bondi NSW" className="flex-1 rounded-md border px-3 py-2" />
+          <button type="submit" className="rounded-md border px-3 py-2 hover:bg-gray-50" disabled={!newAddress.trim()}>Add</button>
+        </form>
+      </section>
+
+      {/* Properties */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-medium">Your properties</h2>
+        {loadingProps ? <div className="text-sm text-gray-600">Loading your properties…</div> :
+          properties.length === 0 ? (
+            <div className="space-y-3 text-sm text-gray-600">
+              <div>No properties yet. Add one above or discover suggested addresses.</div>
+              <Link href="/discover" className="inline-block rounded-md border px-3 py-2 hover:bg-gray-50">Find Properties</Link>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {properties.map(p => (
+                <li key={p.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <Link href={`/properties/${p.id}`} className="truncate hover:underline">{p.address}</Link>
+                  <button onClick={()=>deleteProperty(p.id)} className="text-sm text-gray-600 hover:underline">Delete</button>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      </section>
+    </main>
+  );
+}

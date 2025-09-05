@@ -1,0 +1,1 @@
+export default function CarPage(){return(<div className="p-4">Car (coming soon)</div>)}

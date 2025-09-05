@@ -1,0 +1,78 @@
+import { cookies } from "next/headers";
+import Link from "next/link";
+import { prisma } from "../../lib/server/prisma";
+
+type Props = { searchParams?: { p?: string } };
+
+async function hasDBLoaForProperty(propName: string): Promise<boolean> {
+  const prop = await prisma.property.findUnique({ where: { name: propName }, select: { id: true } });
+  if (!prop) return false;
+  const loa = await prisma.lOA.findFirst({ where: { propertyId: prop.id, provider: "generic", status: "granted" } });
+  return !!loa;
+}
+
+export default async function UserPage({ searchParams }: Props) {
+  const c = await cookies();
+  const email = c.get("session_email")?.value;
+  if (!email) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-8 bg-white text-gray-900">
+        <div className="w-full max-w-md rounded-2xl border p-6 bg-gray-50 text-center space-y-3">
+          <h1 className="text-2xl font-semibold">Not signed in</h1>
+          <Link href="/login" className="mt-3 inline-block rounded-xl bg-blue-600 text-white px-4 py-2 hover:bg-blue-700">Go to Login</Link>
+        </div>
+      </main>
+    );
+  }
+
+  const propsCookie = c.get("properties")?.value || "[]";
+  let props: string[] = [];
+  try {
+    const j = JSON.parse(propsCookie);
+    props = Array.isArray(j) ? j.map((x:any)=> typeof x==="string" ? x : (x?.name??"")).map(String).map(s=>s.trim()).filter(Boolean) : [];
+  } catch { props = []; }
+
+  const sp: any = await (searchParams as any);
+  const pParam = sp?.p ?? "0";
+  const pIdx = Number.isFinite(Number(pParam)) ? Number(pParam) : 0;
+  const activeName = props[pIdx] || props[0] || "Property 1";
+
+  const loaMapStr = c.get("loa_map")?.value || "{}";
+  let loaMap: Record<string, boolean> = {};
+  try { loaMap = JSON.parse(loaMapStr) } catch {}
+
+  const cookieHasLoa = !!loaMap[String(pIdx)];
+  const dbHasLoa = await hasDBLoaForProperty(activeName);
+  const hasLoa = cookieHasLoa || dbHasLoa;
+
+  return (
+    <main className="min-h-screen bg-white text-gray-900">
+      <div className="mx-auto max-w-4xl p-6">
+        <h1 className="text-2xl font-semibold mb-4">Your Properties</h1>
+        <div className="flex gap-2 mb-6">
+          {props.map((name, idx) => (
+            <Link key={idx} href={`/u?p=${idx}`} className={`px-3 py-1 rounded-full border ${idx===pIdx ? "bg-blue-600 text-white" : "bg-white hover:bg-gray-50"}`}>{name}</Link>
+          ))}
+        </div>
+
+        <div className="rounded-2xl border p-5 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-lg font-semibold">{activeName}</div>
+              {hasLoa ? (
+                <div className="mt-1 inline-flex items-center gap-2 text-green-700">
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-600" /> LOA ✓ — Signed
+                </div>
+              ) : (
+                <div className="mt-1 text-gray-600">Add a Letter of Authority to let us talk to your billers.</div>
+              )}
+            </div>
+            {!hasLoa && (
+              <Link href={`/loa/start?i=${pIdx}`} className="inline-block rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700">Fill out LOA</Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}

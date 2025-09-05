@@ -1,0 +1,14 @@
+export const dynamic = "force-dynamic";
+export default function Home() {
+  return (
+    <main className="min-h-screen flex items-center justify-center p-8">
+      <div className="max-w-2xl w-full space-y-6 text-center">
+        <h1 className="text-3xl font-semibold">Property Bill Concierge</h1>
+        <p className="opacity-80">Collect and pay council, water, and strata bills in one place.</p>
+        <div className="flex items-center justify-center gap-3">
+          <a className="border rounded px-4 py-2 bg-black text-white" href="/properties">Go to Properties</a>
+        </div>
+      </div>
+    </main>
+  );
+}

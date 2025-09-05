@@ -1,0 +1,1 @@
+export default function TaxPage(){return(<div className="p-4">Tax (coming soon)</div>)}

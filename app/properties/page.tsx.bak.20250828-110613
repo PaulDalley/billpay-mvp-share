@@ -1,0 +1,139 @@
+import { cookies } from "next/headers";
+import Link from "next/link";
+
+type Props = { searchParams?: { p?: string } };
+
+export default async function UserPage({ searchParams }: Props) {
+  const c = await cookies();
+  const email = c.get("session_email")?.value;
+  if (!email) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-8 bg-white text-gray-900">
+        <div className="w-full max-w-md rounded-2xl border p-6 bg-gray-50 text-center space-y-3">
+          <h1 className="text-2xl font-semibold">Not signed in</h1>
+          <Link href="/login" className="mt-3 inline-block rounded-xl bg-blue-600 text-white px-4 py-2 hover:bg-blue-700">Go to Login</Link>
+        </div>
+      </main>
+    );
+  }
+
+  // Load properties + LOA map from cookies
+  let properties: Array<{ street:string; suburb:string; city:string; address:string }> = [];
+  let loaMap: Record<string, { name:string; at:string; consent:true; sig?:string }> = {};
+  try { const v = c.get("properties")?.value; if (v) properties = JSON.parse(v); } catch {}
+  try { const v = c.get("loa_map")?.value; if (v) loaMap = JSON.parse(v); } catch {}
+
+  if (properties.length === 0) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-8 bg-white text-gray-900">
+        <div className="w-full max-w-md rounded-2xl border p-6 bg-gray-50 text-center space-y-4">
+          <h1 className="text-2xl font-semibold">Welcome, {email}</h1>
+          <p className="text-gray-700">Let’s add your first property to get started.</p>
+          <Link href="/properties/add" className="inline-block rounded-xl bg-blue-600 text-white px-5 py-3 font-medium hover:bg-blue-700">Add Property</Link>
+          <p className="text-xs text-gray-500">You’ll then see all your bills in one place.</p>
+          <a href="/api/auth/logout" className="block text-xs text-gray-500 hover:underline">Sign out</a>
+        </div>
+      </main>
+    );
+  }
+
+  // Choose selected property: ?p= overrides cookie prop_idx
+  const urlP = Number.isFinite(Number(searchParams?.p)) ? Number(searchParams?.p) : NaN;
+  const cookieP = Number(c.get("prop_idx")?.value ?? NaN);
+  let idx = 0;
+  if (!Number.isNaN(urlP) && urlP >= 0 && urlP < properties.length) idx = urlP;
+  else if (!Number.isNaN(cookieP) && cookieP >= 0 && cookieP < properties.length) idx = cookieP;
+
+  const selected = properties[idx];
+  const loa = loaMap[String(idx)];
+  const hasSignedLOA = !!(loa?.consent && loa?.sig);
+
+  return (
+    <main className="min-h-screen p-6 bg-gray-50 text-gray-900">
+      <header className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold">Bill Dashboard</h1>
+        <div className="flex items-center gap-3">
+          <Link href="/properties/add" className="text-sm rounded-xl border px-3 py-1.5 hover:bg-gray-100">Add Property</Link>
+          <a href="/api/auth/logout" className="text-sm text-gray-500 hover:underline">Sign out</a>
+        </div>
+      </header>
+
+      {/* Property tabs */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {properties.map((p, i) => (
+          <a
+            key={i}
+            href={`/u?p=${i}`}
+            className={[
+              "rounded-xl px-3 py-1.5 text-sm ring-1",
+              i===idx ? "bg-blue-600 text-white ring-blue-600" : "bg-white text-gray-700 ring-gray-200 hover:bg-gray-50"
+            ].join(" ")}
+          >
+            {p.address || `${p.street}, ${p.suburb}`}
+          </a>
+        ))}
+      </div>
+
+      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-medium">{selected?.address ?? "Your Property"}</div>
+          <div className="text-sm text-gray-500">Updated just now</div>
+        </div>
+
+        {/* LOA status chip near the top */}
+        <div className="mt-3">
+          {hasSignedLOA ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="inline-flex items-center gap-2 rounded-full bg-green-50 text-green-700 text-xs px-3 py-1 ring-1 ring-green-200">
+                <span>✅ LOA signed</span>
+                <span>•</span>
+                <span>{new Date(loa!.at).toLocaleDateString()}</span>
+                <span className="text-gray-500">(by {loa!.name})</span>
+              </div>
+              <Link href={`/loa/view?i=${idx}`} className="text-xs underline text-blue-700">View / Print</Link>
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 text-amber-700 text-xs px-3 py-1 ring-1 ring-amber-200">
+              ⚠️ Action suggested: Add Letter of Authority
+            </span>
+          )}
+        </div>
+
+        {/* Bills table */}
+        <div className="mt-4 grid gap-3">
+          {["Council","Water","Strata","Electricity","Gas","Insurance"].map((label) => (
+            <div key={label} className="grid grid-cols-3 gap-2 text-sm">
+              <div className="font-medium">{label}</div>
+              <div>$—</div>
+              <div className="text-blue-600 hover:underline cursor-pointer">Add this biller</div>
+            </div>
+          ))}
+        </div>
+
+        {/* LOA CTA — centered, bottom-middle */}
+        {!hasSignedLOA && (
+          <div className="mt-8 flex justify-center">
+            <div className="w-full max-w-xl text-center rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+              <h3 className="text-base font-semibold text-blue-900">Add Letter of Authority</h3>
+              <p className="mt-2 text-sm text-blue-900/80">
+              </p>
+              <ul className="mt-2 space-y-1 text-sm text-blue-900/80">
+                <li>✅ Your data is <strong>never shared</strong>.</li>
+                <li>✅ This <strong>only</strong> lets us contact billers and fetch your bills to display here.</li>
+                <li>✅ Your privacy is <strong>100% protected</strong>.</li>
+              </ul>
+              <div className="mt-4">
+                <Link
+                  href={`/loa/start?i=${idx}`}
+                  className="inline-block rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700"
+                >
+                  Fill out LOA
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

@@ -1,0 +1,79 @@
+// Clean schema — property-level LOA (no provider/account linkage)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum LoaStatus {
+  REQUESTED
+  GRANTED
+  REVOKED
+}
+
+model Property {
+  id              String            @id @default(cuid())
+  name            String            @unique
+  street          String?
+  suburb          String?
+  city            String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  loa             Loa?
+  ProviderAccount ProviderAccount[]
+}
+
+model Loa {
+  id            String    @id @default(cuid())
+  propertyId    String    @unique
+  property      Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  status        LoaStatus @default(REQUESTED)
+  scopes        Json // e.g. ["READ_BILLING","DISCUSS_ACCOUNT"]
+  signerName    String
+  signerEmail   String
+  documentUrl   String?
+  auditTrailUrl String?
+  grantedAt     DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum ProviderStatus {
+  PENDING
+  CONNECTED
+}
+
+enum BillSource {
+  USER_REFERENCE
+  ADMIN_RETRIEVED
+}
+
+model ProviderAccount {
+  id         String         @id @default(cuid())
+  propertyId String
+  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  details    String?
+  status     ProviderStatus @default(PENDING)
+  bills      Bill[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([propertyId, name])
+}
+
+model Bill {
+  id                String          @id @default(cuid())
+  providerAccountId String
+  provider          ProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Cascade)
+  filename          String
+  notes             String?
+  source            BillSource
+  uploadedBy        String?
+  uploadedAt        DateTime        @default(now())
+}

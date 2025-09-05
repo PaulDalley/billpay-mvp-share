@@ -1,0 +1,90 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabaseclient'
+
+type Property = {
+  id: string
+  display_address: string
+}
+
+export default function DashboardPage() {
+  const [properties, setProperties] = useState<Property[]>([])
+  const [newAddress, setNewAddress] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  const fetchProperties = async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('properties')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (!error && data) setProperties(data)
+    setLoading(false)
+  }
+
+  const addProperty = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newAddress.trim()) return
+    const { error } = await supabase
+      .from('properties')
+      .insert([{ display_address: newAddress }])
+    if (!error) {
+      setNewAddress('')
+      fetchProperties()
+    } else {
+      alert(error.message)
+    }
+  }
+
+  const deleteProperty = async (id: string) => {
+    const { error } = await supabase
+      .from('properties')
+      .delete()
+      .eq('id', id)
+    if (!error) fetchProperties()
+    else alert(error.message)
+  }
+
+  useEffect(() => {
+    fetchProperties()
+  }, [])
+
+  return (
+    <div className="min-h-screen p-6 max-w-lg mx-auto">
+      <h1 className="text-2xl font-semibold mb-4">Your Properties</h1>
+
+      <form onSubmit={addProperty} className="mb-4 flex gap-2">
+        <input
+          type="text"
+          placeholder="Enter property address"
+          value={newAddress}
+          onChange={(e) => setNewAddress(e.target.value)}
+          className="flex-1 border rounded p-2"
+        />
+        <button className="bg-black text-white px-4 rounded">Add</button>
+      </form>
+
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <ul className="space-y-2">
+          {properties.map((p) => (
+            <li
+              key={p.id}
+              className="border p-2 flex justify-between items-center"
+            >
+              <span>{p.display_address}</span>
+              <button
+                onClick={() => deleteProperty(p.id)}
+                className="text-red-600"
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}

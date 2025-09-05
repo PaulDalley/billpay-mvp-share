@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum LoaStatus { REQUESTED GRANTED REVOKED }
+enum ProviderStatus { PENDING CONNECTED }
+
+model Property {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  street    String?
+  suburb    String?
+  city      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  loa       Loa?
+  providers ProviderAccount[]
+}
+
+model Loa {
+  id            String    @id @default(cuid())
+  propertyId    String    @unique
+  property      Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  status        LoaStatus @default(REQUESTED)
+  scopes        Json
+  signerName    String
+  signerEmail   String
+  documentUrl   String?
+  auditTrailUrl String?
+  grantedAt     DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model ProviderAccount {
+  id         String    @id @default(cuid())
+  propertyId String
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  details    String?
+  status     ProviderStatus @default(PENDING)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  bills      Bill[]
+}
+
+model Bill {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   ProviderAccount @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  note       String?
+  filePath   String
+  uploadedAt DateTime @default(now())
+}

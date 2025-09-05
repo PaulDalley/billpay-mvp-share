@@ -1,0 +1,66 @@
+datasource db { provider = "sqlite"; url = "file:./dev.db" }
+generator client { provider = "prisma-client-js" }
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  properties Property[]
+  bills      Bill[]
+}
+
+model Property {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  alias     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bills     Bill[]
+
+  @@index([userId])
+}
+
+enum BillCategory {
+  PROPERTY
+  PERSONAL
+  CAR
+  EDUCATION
+  OTHER
+}
+
+model Bill {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     BillCategory
+  propertyId   String?
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  sourceId     String
+  biller       String
+  amountCents  Int
+  currency     String       @default("AUD")
+  dueDate      DateTime?
+  issuedDate   DateTime?
+  status       String       @default("unpaid")
+  note         String?
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([userId, sourceId])
+  @@index([userId, category])
+  @@index([propertyId])
+}
+
+model BillDocument {
+  id        String   @id @default(cuid())
+  billId    String
+  bill      Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  kind      String   @default("pdf")
+  storage   String
+  createdAt DateTime @default(now())
+}
